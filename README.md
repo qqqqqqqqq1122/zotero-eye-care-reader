@@ -32,6 +32,9 @@ git clone https://github.com/qqqqqqqqq1122/zotero-eye-care-reader.git
 
 ## Revision History
 
+- 2026-09-18 21:49:02 — 扩展 0.4.2：**选中弹窗改为停靠在窗口右侧，并加了开关**。
+  弹窗原本跟着选区跑、盖在正文中间，很挡视线。现在用带 `!important` 的 CSS 压过 reader 的内联 `transform`，把它固定在窗口右侧竖直居中；右键菜单里新增「开启/关闭选中弹窗」，状态持久化。
+  实测：桌面版与扩展版的弹窗都落在 `右边缘 10px / 竖直偏差 0px`；关闭后三击选中，弹窗计算样式为 `display: none`；重载后开关状态保持。
 - 2026-09-18 21:09:37 — 扩展 0.4.1：**修复侧栏布局不记忆**。两个 app 都硬编码了 `sidebarOpen: true`，且 `onToggleSidebar` / `onChangeSidebarWidth` / `onChangeSidebarView` 是空实现。已改为从设置恢复并在变更时落盘。
   注意这三个回调和主题那两个**语义不同** —— 它们不是独占的，reader 自己会应用变更，宿主只需存盘。
   实测：点击 `#sidebarToggle` → `sidebarOpen` 落盘为 `false` → 重开后侧栏保持折叠（桌面版与扩展版均已验证）。
@@ -455,6 +458,56 @@ exe 的图标是编译进资源段的，改文件名或放个 `.ico` 在旁边�
 脚本最后会把图标从 exe 里抽出来存成 `G:\setting_pdf_reader\step130_icon_check.png` 供肉眼验证（只信脚本打印的"成功"是不够的）。
 
 **副作用**：改资源会让 exe 的 Authenticode 签名失效。实测 Electron 的预编译二进制本来就是 `NotSigned`，所以**没有额外影响**。
+
+---
+
+## 界面定制：选中弹窗
+
+选中文字时弹出的批注工具栏，**默认停靠在窗口右侧竖直居中**（纸张外的空白处），不再盖在正文中间。
+
+![选中弹窗停靠在窗口右侧](docs/popup-docked-right.png)
+
+**开关**：在 PDF 上右键 → 「关闭选中弹窗」/「开启选中弹窗」。状态会记住，重启后保持。
+
+实现方式（**不需要改 reader 源码重新构建**）：
+
+```css
+.view-popup.selection-popup {
+    position: fixed !important;
+    transform: none !important;
+    translate: 0 -50% !important;
+    top: 50% !important;
+    right: 10px !important;
+    left: auto !important;
+}
+body.zr-hide-selection-popup .view-popup.selection-popup {
+    display: none !important;
+}
+```
+
+两个关键点：
+
+1. **必须用 `!important`**。`ViewPopup` 是用**内联 style 的 `transform`** 定位的（`src/common/components/view-popup/common/view-popup.js:167`）。不带 `!important` 的内联样式会输给带 `!important` 的样式表规则，所以这里能压过它。
+2. **竖直居中用 `translate` 属性而不是 `transform`**。因为上面已经把 `transform` 强制成 `none` 了 —— `translate` 是独立于 `transform` 的 CSS 属性，两者互不影响。
+
+开关通过拦截 `onOpenContextMenu` 把自定义菜单项追加进 reader 原有的菜单（跳过 `internal` 的内部浮层）：
+
+```js
+onOpenContextMenu: (params) => {
+    if (params.internal || !Array.isArray(params.itemGroups)) {
+        return reader.openContextMenu(params);
+    }
+    return reader.openContextMenu({
+        ...params,
+        itemGroups: [...params.itemGroups, [{
+            label: popupEnabled ? '关闭选中弹窗' : '开启选中弹窗',
+            onCommand: () => setPopupEnabled(!popupEnabled),
+        }]],
+    });
+},
+```
+
+> 注意：这个入口会出现在**所有非内部右键菜单**里（正文、批注等）。这是由 reader 的菜单分发决定的 —— 各类菜单共用 `onOpenContextMenu` 这一个出口，params 里没有区分类型的字段。
 
 ---
 

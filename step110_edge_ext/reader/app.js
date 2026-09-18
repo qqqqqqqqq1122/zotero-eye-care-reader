@@ -150,6 +150,16 @@ async function start(buf, key, title) {
 
 	document.title = title || '护眼 PDF 阅读器';
 
+	// ---- 选中弹窗开关 ----
+	// 停靠位置由 reader.html 里的 CSS 负责（右侧空白处），这里只管开关
+	let popupEnabled = settings.showSelectionPopup !== false;   // 默认开
+	document.body.classList.toggle('zr-hide-selection-popup', !popupEnabled);
+	const setPopupEnabled = (on) => {
+		popupEnabled = on;
+		document.body.classList.toggle('zr-hide-selection-popup', !on);
+		patchSettings({ showSelectionPopup: on });
+	};
+
 	const callbacks = buildReaderCallbacks(key);
 
 	try {
@@ -193,7 +203,23 @@ async function start(buf, key, title) {
 			}),
 
 			// ---- reader 会调用这些回调，按需接实现 ----
-			onOpenContextMenu: (params) => reader.openContextMenu(params),
+			// reader 的各类右键菜单都分发到这里，我们在末尾补一项来开关选中弹窗。
+			// 跳过 internal 菜单（颜色选择器那种小浮层，塞进去会很怪）。
+			onOpenContextMenu: (params) => {
+				if (params.internal || !Array.isArray(params.itemGroups)) {
+					return reader.openContextMenu(params);
+				}
+				return reader.openContextMenu({
+					...params,
+					itemGroups: [
+						...params.itemGroups,
+						[{
+							label: popupEnabled ? '关闭选中弹窗' : '开启选中弹窗',
+							onCommand: () => setPopupEnabled(!popupEnabled),
+						}],
+					],
+				});
+			},
 			onAddToNote: () => {},
 			onOpenTagsPopup: () => {},
 			onClosePopup: () => {},

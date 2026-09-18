@@ -4,6 +4,34 @@
 	<meta charset="UTF-8">
 	<title>PDF 阅读器</title>
 	<link rel="stylesheet" href="/reader.css">
+	<style>
+		/*
+			选中弹窗：停靠到窗口右侧空白处，不再盖在正文上。
+
+			必须用 !important：ViewPopup 是用内联 style 的 transform 定位的
+			（src/common/components/view-popup/common/view-popup.js:167），
+			而不带 !important 的内联样式会被带 !important 的样式表规则压过。
+
+			竖直居中用 translate 属性而不是 transform ——
+			因为上面已经把 transform 强制成 none 了，两者是独立的 CSS 属性。
+		*/
+		.view-popup.selection-popup {
+			position: fixed !important;
+			transform: none !important;
+			translate: 0 -50% !important;
+			top: 50% !important;
+			bottom: auto !important;
+			right: 10px !important;
+			left: auto !important;
+			margin: 0 !important;
+			z-index: 100 !important;
+		}
+
+		/* 关掉选中弹窗时（右键菜单里切换）彻底不渲染 */
+		body.zr-hide-selection-popup .view-popup.selection-popup {
+			display: none !important;
+		}
+	</style>
 </head>
 <!--
 	注意：脚本必须放在 </body> 之前，不能放 <head>。

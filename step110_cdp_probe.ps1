@@ -17,7 +17,12 @@ param(
     [string]$TargetType = "page",
     [string]$Expression,
     [string]$ScreenshotPath,
-    [int]$TimeoutSec = 30
+    [int]$TimeoutSec = 30,
+    # 在视口坐标处点击，格式 "x,y"。clickCount=3 即三击选行 —— reader 靠指针事件
+    # 构建选区（pdf-view.js 的 _setSelectionRanges），纯 JS 合成事件喂不进去。
+    [string]$ClickAt,
+    [int]$ClickCount = 3,
+    [string]$Button = "left"
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,6 +92,25 @@ try {
         Write-Host "已导航到: $Navigate"
         Write-Host "等待 $WaitAfterNavigateSec 秒..."
         Start-Sleep -Seconds $WaitAfterNavigateSec
+    }
+
+    if ($ClickAt) {
+        $parts = $ClickAt -split ','
+        $cx = [double]$parts[0]
+        $cy = [double]$parts[1]
+        Write-Host "在 ($cx, $cy) 用 $Button 键点击 x$ClickCount ..."
+        $mask = if ($Button -eq 'right') { 2 } else { 1 }
+        foreach ($type in @('mousePressed', 'mouseReleased')) {
+            [void](Invoke-CdpCommand $ws "Input.dispatchMouseEvent" @{
+                type       = $type
+                x          = $cx
+                y          = $cy
+                button     = $Button
+                buttons    = $(if ($type -eq 'mousePressed') { $mask } else { 0 })
+                clickCount = $ClickCount
+            })
+        }
+        Start-Sleep -Seconds 2
     }
 
     if ($Expression) {
