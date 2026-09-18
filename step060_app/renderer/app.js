@@ -113,10 +113,10 @@ async function getJSON(url) {
 			lightTheme: settings.lightTheme || undefined,
 			darkTheme: settings.darkTheme || undefined,
 
-			// ---- 界面初始状态 ----
-			sidebarOpen: true,
-			sidebarWidth: 240,
-			sidebarView: 'annotations',
+			// ---- 界面初始状态（从设置恢复上次的侧栏布局）----
+			sidebarOpen: typeof settings.sidebarOpen === 'boolean' ? settings.sidebarOpen : true,
+			sidebarWidth: typeof settings.sidebarWidth === 'number' ? settings.sidebarWidth : 240,
+			sidebarView: settings.sidebarView || 'annotations',
 			showAnnotations: true,
 			bottomPlaceholderHeight: null,
 			toolbarPlaceholderWidth: 0,
@@ -156,9 +156,21 @@ async function getJSON(url) {
 			onOpenLink: (url) => {
 				if (/^https?:/.test(url)) window.open(url, '_blank');
 			},
-			onToggleSidebar: () => {},
-			onChangeSidebarWidth: () => {},
-			onChangeSidebarView: () => {},
+			// ---- 侧栏布局持久化 ----
+			// 注意：这三个回调**不是独占的** —— reader 自己已经应用了变更
+			// （见 src/common/reader.js:418-429），宿主只需存盘，不要再调 setSidebarXxx。
+			// 另外 onToggleSidebar 的入参可能是 undefined（表示"切换"），
+			// 所以以 reader._state 里的实际值为准（_updateState 是同步赋值）。
+			onToggleSidebar: () => {
+				const actual = reader._state && reader._state.sidebarOpen;
+				if (typeof actual === 'boolean') postJSON('/__settings', { sidebarOpen: actual });
+			},
+			onChangeSidebarWidth: (width) => {
+				if (typeof width === 'number') postJSON('/__settings', { sidebarWidth: width });
+			},
+			onChangeSidebarView: (view) => {
+				if (view) postJSON('/__settings', { sidebarView: view });
+			},
 			onSetDataTransferAnnotations: () => {},
 			onConfirm: (_title, text) => window.confirm(text),
 			onRotatePages: () => {},

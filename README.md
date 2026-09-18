@@ -32,6 +32,9 @@ git clone https://github.com/qqqqqqqqq1122/zotero-eye-care-reader.git
 
 ## Revision History
 
+- 2026-09-18 21:09:37 — 扩展 0.4.1：**修复侧栏布局不记忆**。两个 app 都硬编码了 `sidebarOpen: true`，且 `onToggleSidebar` / `onChangeSidebarWidth` / `onChangeSidebarView` 是空实现。已改为从设置恢复并在变更时落盘。
+  注意这三个回调和主题那两个**语义不同** —— 它们不是独占的，reader 自己会应用变更，宿主只需存盘。
+  实测：点击 `#sidebarToggle` → `sidebarOpen` 落盘为 `false` → 重开后侧栏保持折叠（桌面版与扩展版均已验证）。
 - 2026-09-18 20:47:52 — 扩展 0.4.0：**修复本地 PDF（`file://`）不自动打开**。
   `webRequest` 对 `file://` 完全不触发，而"双击本地 PDF / 下载后点开"正是最常用的路径。加了 `chrome.tabs.onUpdated` 按 URL 后缀兜底（覆盖 file://），并在启动时用 `isAllowedFileSchemeAccess()` 自检 —— 没权限就在工具栏图标挂红色 `!` 徽标提示去开「允许访问文件 URL」。
   实测：`file://` PDF 自动跳转 → 阅读器成功 `fetch` → 渲染出 38 页（canvas 2106x2976）。
@@ -381,7 +384,7 @@ Requested registry access is not allowed.
 - **主题按系统配色分槽**。系统是深色时，点主题存进 `darkTheme`；浅色时存进 `lightTheme`。两个槽都持久化了，所以切换系统主题也能各记各的。
 - **分发义务**：reader 为 AGPL-3.0，若要上架或分发衍生作品，源码需按 AGPL 开放。
 
-### 踩过的两个坑（2026-09-18 修复）
+### 踩过的几个坑（2026-09-18 修复）
 
 **坑一：主题换了不记忆。**
 `src/common/reader.js:430-448`：
@@ -399,12 +402,28 @@ onChangeTheme={(theme) => {
 
 另外注意：主题按系统配色存进 light 或 dark **两个不同的槽**，两个都要恢复。
 
-**坑二：自动打开需要改机制。**
+**坑二：侧栏布局不记忆。**
+`sidebarOpen` / `sidebarWidth` / `sidebarView` 三个初始值被硬编码，而 `onToggleSidebar` / `onChangeSidebarWidth` / `onChangeSidebarView` 是空实现，所以每次打开都是默认展开。
+
+**但这里的语义和主题那两个回调相反**（`src/common/reader.js:418-429`）：
+
+```js
+onToggleSidebar={(open) => {
+    this.toggleSidebar(open);        // reader 自己先应用了
+    this._onToggleSidebar(open);     // 只是通知宿主
+}}
+```
+
+**不是独占的** —— 宿主只需存盘，**不要再调 `setSidebarXxx`**（调了等于重复应用）。主题那边则是提供了回调 reader 就不自己调了，两边正好相反，容易搞混。
+
+还有个细节：`onToggleSidebar` 的入参可能是 `undefined`（表示"切换"），所以落盘时要取 `reader._state.sidebarOpen` 的实际值 —— `_updateState` 是同步赋值（`reader.js:620`），回调触发时它已经是新值了。
+
+**坑三：自动打开需要改机制。**
 最初想用内容脚本检测 `document.contentType === 'application/pdf'`。实测行不通 —— 在 PDF 标签页上调 `chrome.runtime.getContexts()` **只返回 `BACKGROUND`，没有 `CONTENT_SCRIPT`**。原因：PDF 查看器本体是 `chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/edge_pdf/index.html`，文档在 OOPIF 里（CDP 目标类型会显示成 `webview` + `iframe`），**Chromium 不往 PDF 页面注入内容脚本**。
 
 改用 `webRequest.onHeadersReceived`（只读观测，不需要 `webRequestBlocking`，MV3 允许）。它直接看响应头的 `Content-Type`，比匹配 `.pdf` 后缀可靠 —— `arxiv.org/pdf/2401.12345` 这种没后缀的也能抓到。实测事件**确实能唤醒休眠的 Service Worker**。
 
-**坑三（调试经验）：`--load-extension` 会复用缓存的 Service Worker。**
+**坑四（调试经验）：`--load-extension` 会复用缓存的 Service Worker。**
 改了扩展代码后光重启浏览器**不会重新读盘**，SW 跑的还是旧代码（表现为 `typeof 新函数 === "undefined"`、`hasListeners()` 为 false）。必须在 `edge://extensions` 点「重新加载」，或在 SW 里调 `chrome.runtime.reload()`。
 
 ## step120 — 生成 PDF 风格图标
