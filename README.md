@@ -35,6 +35,7 @@ git clone https://github.com/qqqqqqqqq1122/zotero-eye-care-reader.git
 - 2026-09-18 21:49:02 — 扩展 0.4.2：**选中弹窗改为停靠在窗口右侧，并加了开关**。
   弹窗原本跟着选区跑、盖在正文中间，很挡视线。现在用带 `!important` 的 CSS 压过 reader 的内联 `transform`，把它固定在窗口右侧竖直居中；右键菜单里新增「开启/关闭选中弹窗」，状态持久化。
   实测：桌面版与扩展版的弹窗都落在 `右边缘 10px / 竖直偏差 0px`；关闭后三击选中，弹窗计算样式为 `display: none`；重载后开关状态保持。
+  **补充（同日修复）**：初次实现时漏验了"右键能不能唤出菜单"，实际 `src/pdf/pdf-view.js:3668` 有 `if (this._options.platform === 'web') return;` —— web 构建里 PDF 的右键菜单**根本不弹**。已在两个 app 里把 PDF 视图对象的 `_options.platform` 改掉（只改视图对象，不动全局 platform）。现在右键菜单可用，我们的项出现在末尾。
 - 2026-09-18 21:09:37 — 扩展 0.4.1：**修复侧栏布局不记忆**。两个 app 都硬编码了 `sidebarOpen: true`，且 `onToggleSidebar` / `onChangeSidebarWidth` / `onChangeSidebarView` 是空实现。已改为从设置恢复并在变更时落盘。
   注意这三个回调和主题那两个**语义不同** —— 它们不是独占的，reader 自己会应用变更，宿主只需存盘。
   实测：点击 `#sidebarToggle` → `sidebarOpen` 落盘为 `false` → 重开后侧栏保持折叠（桌面版与扩展版均已验证）。
@@ -469,7 +470,34 @@ exe 的图标是编译进资源段的，改文件名或放个 `.ico` 在旁边�
 
 **开关**：在 PDF 上右键 → 「关闭选中弹窗」/「开启选中弹窗」。状态会记住，重启后保持。
 
-实现方式（**不需要改 reader 源码重新构建**）：
+### 前提：右键菜单默认是关掉的
+
+`src/pdf/pdf-view.js:3668`：
+
+```js
+if (this._options.platform === 'web') {
+    return;                      // ← web 构建里 PDF 的右键菜单直接不工作
+}
+```
+
+而 `src/index.web.js` 会把 `platform` 写死成 `'web'`。所以**独立版默认在 PDF 上右键什么都不会发生**。
+
+修法是创建 reader 后把视图对象的 platform 改掉 —— **只改视图这一个对象，不动全局 `platform`**，因为全局改会波及 `thumbnails-view`、`appearance-popup`、`annotations-view` 等好几处 `platform === 'web'` 的分支：
+
+```js
+function enablePdfContextMenu(r) {
+    for (const v of (r._views || [])) {
+        if (v && v._options && v._options.platform === 'web') {
+            v._options.platform = 'electron';
+        }
+    }
+}
+// createReader 之后调用一次，initializedPromise 之后再补一次（视图可能延迟创建）
+```
+
+> **副作用**：在 Edge 扩展里，reader 的右键菜单会**取代浏览器原生菜单**，所以右键不再有「另存为 / 打印 / 检查」。桌面版没有这个问题（Electron 本来就没有默认右键菜单）。如果更想要浏览器原生菜单，可以把扩展里这段 patch 去掉，改用别的方式开关弹窗。
+
+### 实现方式（**不需要改 reader 源码重新构建**）
 
 ```css
 .view-popup.selection-popup {

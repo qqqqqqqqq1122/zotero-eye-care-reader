@@ -90,6 +90,25 @@ async function getJSON(url) {
 
 	document.title = doc.title || 'PDF 阅读器';
 
+	/**
+	 * 让 PDF 上的右键菜单可用。
+	 *
+	 * src/pdf/pdf-view.js:3668 里有 `if (this._options.platform === 'web') return;`
+	 * —— 也就是说 web 构建里 PDF 的右键菜单**根本不弹**。
+	 * 而 src/index.web.js 会把 platform 写死成 'web'。
+	 * 独立版需要这个菜单（不只为那个开关，单机版右键本身就该有东西）。
+	 *
+	 * 只改视图对象的 _options.platform，不动全局 platform ——
+	 * 全局改会波及缩略图、外观面板、批注列表等好几处 platform === 'web' 的分支。
+	 */
+	function enablePdfContextMenu(r) {
+		for (const v of (r._views || [])) {
+			if (v && v._options && v._options.platform === 'web') {
+				v._options.platform = 'electron';
+			}
+		}
+	}
+
 	// ---- 选中弹窗开关 ----
 	// 停靠位置由 index.html 里的 CSS 负责（右侧空白处），这里只管开关
 	let popupEnabled = settings.showSelectionPopup !== false;   // 默认开
@@ -209,8 +228,11 @@ async function getJSON(url) {
 		});
 
 		reader.enableAddToNote(true);
+		enablePdfContextMenu(reader);
 		window._reader = reader;
 		await reader.initializedPromise;
+		// 视图可能在这之后才建好，再补一次
+		enablePdfContextMenu(reader);
 		console.log('[reader] initialized for', doc.path,
 			'| annotations:', annotations.length,
 			'| eye-care themes:', builtinThemes.length);
