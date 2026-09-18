@@ -8,6 +8,12 @@ step090_dist/
 # ---- 运行/构建日志 ----
 *.log
 
+# Edge 在 edge://extensions 里「打包扩展」生成的 .crx。
+# 不发布：Windows 上 Edge/Chrome 会拦截非商店来源的 .crx 安装，
+# 用户应该用「加载解压缩的扩展」。
+*.crx
+*.pem
+
 # ---- 系统与编辑器 ----
 Thumbs.db
 desktop.ini
