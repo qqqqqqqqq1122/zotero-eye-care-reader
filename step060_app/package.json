@@ -1,0 +1,13 @@
+{
+	"name": "zotero-reader-standalone",
+	"version": "0.1.0",
+	"description": "独立 PDF 阅读器 —— 阅读 UI 来自 Zotero reader (github.com/zotero/reader)",
+	"main": "main.js",
+	"license": "AGPL-3.0",
+	"scripts": {
+		"start": "electron ."
+	},
+	"devDependencies": {
+		"electron": "^44.4.2"
+	}
+}

@@ -1,0 +1,47 @@
+﻿step010 zotero/reader 婧愮爜鎷夊彇娓呭崟
+鐢熸垚鏃堕棿: 2026-09-18 19:55:34
+
+浠撳簱:     https://github.com/zotero/reader.git
+鍒嗘敮:     10.0
+鎻愪氦:     3e6826bc06305ff8495e58bb03a62ef010474564
+鎻愪氦鏃堕棿: 2026-09-14T12:39:14-04:00
+婧愮爜鐩綍: G:\setting_pdf_reader\step010_reader_src
+
+宸ュ叿鐗堟湰:
+  git    git version 2.52.0.windows.1
+  node   v24.12.0
+  npm    11.6.2
+
+瀛愭ā鍧楃姸鎬?
+   e68c8b9c868be6ccb5b9684213117e95e52ef880 epubjs/epub.js (v0.3.93-38-ge68c8b9)
+   6cb4c4722f228464e78aea59fe919fc896fa2ea9 pdfjs/pdf.js (vundefined-16163-g6cb4c4722)
+   9a337683fe443885270cb737c1a50b013adb78c4 structured-document-text (9a33768)
+
+椤跺眰鍐呭:
+  .editorconfig                  197 bytes
+  .eslintignore                  9 bytes
+  .eslintrc                      1124 bytes
+  .github                        <DIR>
+  .gitignore                     93 bytes
+  .gitmodules                    352 bytes
+  .zotero-locale-commit          40 bytes
+  babel.config.js                350 bytes
+  COPYING                        35857 bytes
+  demo                           <DIR>
+  epubjs                         <DIR>
+  index.read-aloud-first-run.html 393 bytes
+  index.read-aloud-voices.html   492 bytes
+  index.reader.html              709 bytes
+  index.view.html                262 bytes
+  package.json                   2664 bytes
+  package-lock.json              1336281 bytes
+  pdfjs                          <DIR>
+  postcss.config.js              88 bytes
+  README.md                      467 bytes
+  res                            <DIR>
+  src                            <DIR>
+  structured-document-text       <DIR>
+  test                           <DIR>
+  tsconfig.json                  463 bytes
+  webpack.config.js              8573 bytes
+  webpack.zotero-locale-plugin.js 6124 bytes

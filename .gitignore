@@ -1,0 +1,19 @@
+# ---- 依赖与构建产物 ----
+# 体积大，且都能从源码重建，不进仓库
+node_modules/
+step010_reader_src/
+step060_app/reader-build/
+step090_dist/
+
+# ---- 运行/构建日志 ----
+*.log
+
+# ---- 系统与编辑器 ----
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# 注意：step110_edge_ext/reader/ 是刻意保留的 ——
+# 那是扩展能直接加载所必需的构建产物（11.7 MB）。
+# 用户 clone 下来就能在 edge://extensions 里加载，不必自己跑一遍构建。

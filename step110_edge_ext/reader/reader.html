@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN" dir="ltr" style="--sidebar-width: 240px; --split-view-size: 50%; --bottom-placeholder-height: 50px; --toolbar-placeholder-width: 0px">
+<head>
+	<meta charset="UTF-8">
+	<title>护眼 PDF 阅读器</title>
+	<link rel="stylesheet" href="reader.css">
+</head>
+<!--
+	脚本必须放在 </body> 之前，不能放 <head>：
+	reader.js 在模块求值时会执行 window.getComputedStyle(document.body)，
+	放 head 里时 document.body 还是 null，会抛 TypeError 导致 createReader 挂不上。
+-->
+<body class="sidebar-open">
+	<div id="reader-ui"></div>
+	<div id="split-view">
+		<div id="primary-view" class="primary-view"></div>
+		<div id="secondary-view" class="secondary-view"></div>
+	</div>
+	<div id="printContainer"></div>
+	<script src="eye-care-themes.js"></script>
+	<script src="reader.js"></script>
+	<script src="app.js"></script>
+</body>
+</html>

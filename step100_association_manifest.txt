@@ -1,0 +1,28 @@
+﻿=== 1/5 清理坏掉的旧关联 ===
+  已删除野路子 ProgID pdf_auto_file (原值: "D:\Zotero\zotero.exe" "%1")
+  .pdf 的兜底 ProgID 当前为: PdfGear.App.1
+=== 2/5 注册 ProgID: ZoteroReader.pdf ===
+  shell\open\command = "G:\setting_pdf_reader\step090_dist\ZoteroReader.exe" "%1"
+=== 3/5 注册 Applications 条目（让它出现在「打开方式」列表）===
+  SupportedTypes: .pdf
+=== 4/5 修复兜底 ProgID 与 OpenWithProgids ===
+  HKCU\Software\Classes\.pdf = ZoteroReader.pdf
+  OpenWithProgids 已加入 ZoteroReader.pdf
+=== 5/5 尝试设置默认程序（预期会被 UCPD 拒绝）===
+  被拒绝: Requested registry access is not allowed.
+
+================ 需要你手动完成的一步 ================
+UCPD 保护了默认程序设置，脚本改不了。请手动操作：
+
+  方法一（推荐）：
+    1. 在任意 PDF 文件上点右键
+    2. 打开方式 -> 选择其他应用
+    3. 在列表里选「ZoteroReader 阅读器」
+       （若列表里没有，点「更多应用」->「在这台电脑上查找其他应用」
+         然后选 G:\setting_pdf_reader\step090_dist\ZoteroReader.exe）
+    4. 勾选「始终使用此应用打开 .pdf 文件」，确定
+
+  方法二：
+    设置 -> 应用 -> 默认应用 -> 按文件类型选择默认应用 -> .pdf
+    选择「ZoteroReader 阅读器」
+======================================================

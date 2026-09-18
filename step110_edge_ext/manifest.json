@@ -1,0 +1,33 @@
+{
+	"manifest_version": 3,
+	"name": "护眼 PDF 阅读器（Zotero Reader）",
+	"version": "0.4.0",
+	"description": "用 Zotero 的阅读器在 Edge 里打开 PDF —— 真正的 pageColors 换色，不是盖蒙版。内置四套护眼主题。",
+	"author": "基于 zotero/reader (AGPL-3.0) 与 zotero-eye-care (ZhaoPuEE)",
+
+	"permissions": ["contextMenus", "storage", "tabs", "webRequest"],
+	"host_permissions": ["<all_urls>"],
+
+	"background": {
+		"service_worker": "background.js"
+	},
+
+	"action": {
+		"default_title": "用护眼阅读器打开当前 PDF（右键可切换自动打开）",
+		"default_icon": {
+			"16": "icons/icon16.png",
+			"48": "icons/icon48.png",
+			"128": "icons/icon128.png"
+		}
+	},
+
+	"icons": {
+		"16": "icons/icon16.png",
+		"48": "icons/icon48.png",
+		"128": "icons/icon128.png"
+	},
+
+	"content_security_policy": {
+		"extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+	}
+}

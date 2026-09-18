@@ -1,0 +1,19 @@
+﻿step080 app 资源准备清单
+生成时间: 2026-09-18 20:07:08
+
+来源: G:\setting_pdf_reader\step010_reader_src\build\web
+目标: G:\setting_pdf_reader\step060_app\reader-build
+文件数: 238
+总大小: 11.7 MB
+
+顶层内容:
+  115.js                   0.9 KB
+  317.js                   0.6 KB
+  903.js                   816.3 KB
+  903.js.LICENSE.txt       1.1 KB
+  mathjax-fonts            <DIR>
+  pdf                      <DIR>
+  reader.css               71.5 KB
+  reader.html              0.5 KB
+  reader.js                3562.6 KB
+  reader.js.LICENSE.txt    1.2 KB

@@ -1,0 +1,20 @@
+﻿step090 打包清单
+生成时间: 2026-09-18 20:35:25
+
+分发目录: G:\setting_pdf_reader\step090_dist
+可执行文件: G:\setting_pdf_reader\step090_dist\ZoteroReader.exe
+文件数: 316
+总大小: 379.2 MB
+
+app 内容 (resources\app):
+  package.json
+  main.js
+  renderer
+  reader-build
+
+验证方式:
+  & "G:\setting_pdf_reader\step090_dist\ZoteroReader.exe" "<某个.pdf>"
+
+注意: UCPD (User Choice Protection Driver) 在本机处于 Running 状态，
+      会拒绝任何对 .pdf\UserChoice 的脚本写入，
+      因此默认程序必须由用户在系统 UI 中手动指定（见 step100）。
