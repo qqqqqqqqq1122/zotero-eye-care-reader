@@ -22,7 +22,9 @@ param(
     # 构建选区（pdf-view.js 的 _setSelectionRanges），纯 JS 合成事件喂不进去。
     [string]$ClickAt,
     [int]$ClickCount = 3,
-    [string]$Button = "left"
+    [string]$Button = "left",
+    # 把浏览器的下载目录改到指定路径（验证下载行为时用，避免污染真实的下载文件夹）
+    [string]$DownloadPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -84,6 +86,15 @@ try {
     # Page 域只有 page 类型的 target 才有（service_worker 上没有）
     $isPage = $target.type -eq 'page'
     if ($isPage) { [void](Invoke-CdpCommand $ws "Page.enable" $null) }
+
+    if ($DownloadPath) {
+        New-Item -ItemType Directory -Force -Path $DownloadPath | Out-Null
+        [void](Invoke-CdpCommand $ws "Browser.setDownloadBehavior" @{
+            behavior     = 'allow'
+            downloadPath = $DownloadPath
+        })
+        Write-Host "下载目录设为: $DownloadPath"
+    }
 
     if ($Navigate -and -not $isPage) { throw "非 page 目标不能导航: $($target.type)" }
 

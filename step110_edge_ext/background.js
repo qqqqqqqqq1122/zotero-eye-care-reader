@@ -136,10 +136,50 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
 // MV3 下允许）：直接看响应头的 Content-Type，比匹配 .pdf 后缀可靠得多 ——
 // arxiv.org/pdf/2401.12345 这类没有后缀的链接也能抓到。
 
+// 跳转前的等待时间。给浏览器一点时间决定"这是渲染还是下载" ——
+// 有些下载没有 Content-Disposition（比如 <a download>、右键"链接另存为"），
+// 只看响应头分不出来。
+const REDIRECT_DELAY_MS = 250;
+
+/** 挂起的跳转：url -> { tabId, timer } */
+const pendingRedirects = new Map();
+
+function headerValue(headers, name) {
+	const h = (headers || []).find(x => x.name.toLowerCase() === name);
+	return h ? (h.value || '') : '';
+}
+
+/**
+ * 延迟跳转到阅读器。
+ *
+ * 关键在于**跳之前再确认一次标签页还停在这个 URL 上**：
+ *   - 正常渲染 PDF → 标签页 URL 就是它        → 跳
+ *   - 正在下载     → 导航被浏览器中止，标签页还停在原来那一页 → 不跳
+ *
+ * 这样不用申请 downloads 权限也能把"下载"和"阅读"分开。
+ */
+function scheduleRedirect(tabId, url) {
+	if (pendingRedirects.has(url)) return;
+	const timer = setTimeout(async () => {
+		pendingRedirects.delete(url);
+		let tab = null;
+		try { tab = await chrome.tabs.get(tabId); } catch { /* 标签页已关闭 */ }
+		// 标签页跑到了别的页面上 → 说明这次不是"渲染这个 PDF"，别动它。
+		// 只在 URL 明确不同且不是扩展页时才放弃，避免误伤（把自动打开弄失效）。
+		if (tab && tab.url && tab.url !== url && !tab.url.startsWith('chrome-extension://')) {
+			recentRedirects.set(url, Date.now());
+			return;
+		}
+		recentRedirects.set(url, Date.now());
+		chrome.tabs.update(tabId, { url: readerUrl(url) });
+	}, REDIRECT_DELAY_MS);
+	pendingRedirects.set(url, { tabId, timer });
+}
+
 // 兜底：按 URL 后缀判断。
 // webRequest 对 file:// 完全不触发，而本地 PDF（双击打开、下载后点开）正是
 // 最常见的用法，所以必须有一条不依赖响应头的路径。
-// 代价是抓不到无后缀的链接 —— 那条路由上面的 webRequest 负责，两者互补。
+// 代价是抓不到无后缀的链接 —— 那条路由下面的 webRequest 负责，两者互补。
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 	if (!autoOpen) return;
 	const url = changeInfo.url || (changeInfo.status === 'loading' ? tab && tab.url : null);
@@ -147,10 +187,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 	if (url.startsWith('chrome-extension://')) return;
 	if (!/\.pdf($|[?#])/i.test(url)) return;
 	if (wasJustRedirected(url)) return;
-	recentRedirects.set(url, Date.now());
-	chrome.tabs.update(tabId, { url: readerUrl(url) });
+	scheduleRedirect(tabId, url);
 });
 
+// 主路径：看响应头。
+// 只读观测，不需要 webRequestBlocking，MV3 下允许。
+// 用 Content-Type 而不是 URL 后缀 —— arxiv.org/pdf/2401.12345 这类没后缀的也能抓到。
 chrome.webRequest.onHeadersReceived.addListener(
 	(details) => {
 		if (!autoOpen) return;
@@ -158,14 +200,15 @@ chrome.webRequest.onHeadersReceived.addListener(
 		if (details.type !== 'main_frame') return;   // 只看主框架，忽略阅读器自己的 fetch
 
 		const headers = details.responseHeaders || [];
-		const ct = headers.find((h) => h.name.toLowerCase() === 'content-type');
-		if (!ct || !/application\/(x-)?pdf/i.test(ct.value || '')) return;
+		if (!/application\/(x-)?pdf/i.test(headerValue(headers, 'content-type'))) return;
 
-		// 刚重定向过的不再重定向，否则按「后退」会被立刻弹回来
+		// 服务器明确要求下载 —— 绝不能拦，否则用户的文件根本存不下来。
+		// "点了个下载链接"最常见的就是这种。
+		if (/attachment/i.test(headerValue(headers, 'content-disposition'))) return;
+
+		// 刚处理过的不再处理，否则按「后退」会被立刻弹回来
 		if (wasJustRedirected(details.url)) return;
-		recentRedirects.set(details.url, Date.now());
-
-		chrome.tabs.update(details.tabId, { url: readerUrl(details.url) });
+		scheduleRedirect(details.tabId, details.url);
 	},
 	{ urls: ['<all_urls>'] },
 	['responseHeaders']

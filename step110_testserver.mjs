@@ -46,6 +46,16 @@ http.createServer((req, res) => {
 		return fs.createReadStream(PDF).pipe(res);
 	}
 
+	// 模拟"服务器要求下载"：Content-Type 是 pdf，但带 Content-Disposition: attachment。
+	// 扩展必须**不**劫持它，否则用户的文件就存不下来了。
+	if (p === '/download.pdf') {
+		res.writeHead(200, {
+			'Content-Type': 'application/pdf',
+			'Content-Disposition': 'attachment; filename="from-server.pdf"',
+		});
+		return fs.createReadStream(PDF).pipe(res);
+	}
+
 	const file = path.join(ROOT, p);
 	if (!file.startsWith(ROOT)) {
 		res.writeHead(403); return res.end('forbidden');

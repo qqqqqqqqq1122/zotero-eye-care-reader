@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "护眼 PDF 阅读器（Zotero Reader）",
-	"version": "0.4.2",
+	"version": "0.4.3",
 	"description": "用 Zotero 的阅读器在 Edge 里打开 PDF —— 真正的 pageColors 换色，不是盖蒙版。内置四套护眼主题。",
 	"author": "基于 zotero/reader (AGPL-3.0) 与 zotero-eye-care (ZhaoPuEE)",
 

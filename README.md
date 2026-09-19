@@ -32,6 +32,10 @@ git clone https://github.com/qqqqqqqqq1122/zotero-eye-care-reader.git
 
 ## Revision History
 
+- 2026-09-19 11:39:31 — 扩展 0.4.3：**修复"下载 PDF 被拦截"**。
+  自动打开只看了 `Content-Type`，没看 `Content-Disposition` —— 服务器明确要求下载（`attachment`）时照样被重定向进阅读器，文件根本没落盘。
+  现在两道闸：`attachment` 直接放行；其余情况延后 250ms 跳转，跳之前确认标签页还停在该 URL 上（下载时导航会被浏览器中止，标签页会停在原来那一页），这样就区分开了"渲染"和"下载"，且不需要 `downloads` 权限。
+  实测：`/test.pdf`（无 disposition）→ 自动打开阅读器；`/download.pdf`（`attachment`）→ 标签页不乱跳，文件正常下载到磁盘。
 - 2026-09-18 21:49:02 — 扩展 0.4.2：**选中弹窗改为停靠在窗口右侧，并加了开关**。
   弹窗原本跟着选区跑、盖在正文中间，很挡视线。现在用带 `!important` 的 CSS 压过 reader 的内联 `transform`，把它固定在窗口右侧竖直居中；右键菜单里新增「开启/关闭选中弹窗」，状态持久化。
   实测：桌面版与扩展版的弹窗都落在 `右边缘 10px / 竖直偏差 0px`；关闭后三击选中，弹窗计算样式为 `display: none`；重载后开关状态保持。
@@ -318,7 +322,7 @@ Requested registry access is not allowed.
 | 环节 | 做法 |
 |---|---|
 | 扩展形态 | Manifest V3，`background.js` 为 service worker |
-| 自动打开（网页 PDF） | `webRequest.onHeadersReceived` 看响应头 `Content-Type: application/pdf` |
+| 自动打开（网页 PDF） | `webRequest.onHeadersReceived` 看响应头 `Content-Type: application/pdf`；`Content-Disposition: attachment` 的**直接放行**（那是下载，不是阅读） |
 | 自动打开（本地 PDF） | `chrome.tabs.onUpdated` 按 URL 后缀 `.pdf` 判断 —— **`webRequest` 对 `file://` 完全不触发**，必须另开一条路 |
 | 手动触发 | 工具栏图标（当前页是 PDF 时直接打开）、右键菜单（PDF 链接 / PDF 页面） |
 | reader 页面 | 扩展页 `reader/reader.html`，同源加载 `pdf/web/viewer.html`，不需要 `web_accessible_resources` |
@@ -383,7 +387,8 @@ Requested registry access is not allowed.
 - **朗读关闭**（依赖 Zotero 的 TTS 服务）。
 - **`<all_urls>` 权限较宽**。因为 PDF 可能来自任意站点，这是必要的代价。
 - **本地 PDF 依赖「允许访问文件 URL」**。这是 Chromium 的权限设计，代码无法代劳，只能用户在 `edge://extensions` 里手动开。缺权限时工具栏图标会显示红色 `!`。
-- **下载 PDF 时会被自动打开**。`webRequest` 看到 `Content-Type: application/pdf` 就重定向，所以点一个 PDF 下载链接也会被带进阅读器，而不是存到下载目录。想下载就先关掉自动打开（工具栏图标右键）。
+- **下载 PDF 不会被拦截**（v0.4.3 起）。`Content-Disposition: attachment` 的响应直接放行；没有该响应头的下载（`<a download>`、右键「链接另存为」）靠"延迟跳转 + 确认标签页是否还停在该 URL"来区分 —— 下载时导航会被浏览器中止，标签页留在原来那一页，于是不跳。
+  仍有极小概率误判（例如下载瞬时的 URL 恰好与导航 URL 一致），真要下载时可靠的做法是在工具栏图标上右键**关掉自动打开**。
 - **自动打开时「后退」有 30 秒窗口**。按后退回到 PDF 会被立刻弹回阅读器，所以代码里记了「刚重定向过的 URL」，30 秒内不再重定向。超过 30 秒再按后退仍会被弹回 —— 想稳定看原生查看器就先把自动打开关掉（工具栏图标上右键）。
 - **主题按系统配色分槽**。系统是深色时，点主题存进 `darkTheme`；浅色时存进 `lightTheme`。两个槽都持久化了，所以切换系统主题也能各记各的。
 - **分发义务**：reader 为 AGPL-3.0，若要上架或分发衍生作品，源码需按 AGPL 开放。
