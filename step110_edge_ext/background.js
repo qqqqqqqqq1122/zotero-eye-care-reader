@@ -136,44 +136,23 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
 // MV3 下允许）：直接看响应头的 Content-Type，比匹配 .pdf 后缀可靠得多 ——
 // arxiv.org/pdf/2401.12345 这类没有后缀的链接也能抓到。
 
-// 跳转前的等待时间。给浏览器一点时间决定"这是渲染还是下载" ——
-// 有些下载没有 Content-Disposition（比如 <a download>、右键"链接另存为"），
-// 只看响应头分不出来。
-const REDIRECT_DELAY_MS = 250;
-
-/** 挂起的跳转：url -> { tabId, timer } */
-const pendingRedirects = new Map();
-
 function headerValue(headers, name) {
 	const h = (headers || []).find(x => x.name.toLowerCase() === name);
 	return h ? (h.value || '') : '';
 }
 
 /**
- * 延迟跳转到阅读器。
+ * 立刻跳转到阅读器（不做延迟）。
  *
- * 关键在于**跳之前再确认一次标签页还停在这个 URL 上**：
- *   - 正常渲染 PDF → 标签页 URL 就是它        → 跳
- *   - 正在下载     → 导航被浏览器中止，标签页还停在原来那一页 → 不跳
- *
- * 这样不用申请 downloads 权限也能把"下载"和"阅读"分开。
+ * 之前这里延后 250ms 是为了区分"渲染"和"下载"，但那会拖慢每一次打开，
+ * 而且对没有 Content-Disposition 的下载也未必判断得准。
+ * 现在改成直接跳 —— 万一真是下载被带进了阅读器，阅读器工具栏里有
+ * **下载按钮**可以随时把文件存下来，不会再丢。
  */
-function scheduleRedirect(tabId, url) {
-	if (pendingRedirects.has(url)) return;
-	const timer = setTimeout(async () => {
-		pendingRedirects.delete(url);
-		let tab = null;
-		try { tab = await chrome.tabs.get(tabId); } catch { /* 标签页已关闭 */ }
-		// 标签页跑到了别的页面上 → 说明这次不是"渲染这个 PDF"，别动它。
-		// 只在 URL 明确不同且不是扩展页时才放弃，避免误伤（把自动打开弄失效）。
-		if (tab && tab.url && tab.url !== url && !tab.url.startsWith('chrome-extension://')) {
-			recentRedirects.set(url, Date.now());
-			return;
-		}
-		recentRedirects.set(url, Date.now());
-		chrome.tabs.update(tabId, { url: readerUrl(url) });
-	}, REDIRECT_DELAY_MS);
-	pendingRedirects.set(url, { tabId, timer });
+function redirectToReader(tabId, url) {
+	if (wasJustRedirected(url)) return;
+	recentRedirects.set(url, Date.now());
+	chrome.tabs.update(tabId, { url: readerUrl(url) });
 }
 
 // 兜底：按 URL 后缀判断。
@@ -186,8 +165,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 	if (!url || typeof url !== 'string') return;
 	if (url.startsWith('chrome-extension://')) return;
 	if (!/\.pdf($|[?#])/i.test(url)) return;
-	if (wasJustRedirected(url)) return;
-	scheduleRedirect(tabId, url);
+	redirectToReader(tabId, url);
 });
 
 // 主路径：看响应头。
@@ -206,9 +184,7 @@ chrome.webRequest.onHeadersReceived.addListener(
 		// "点了个下载链接"最常见的就是这种。
 		if (/attachment/i.test(headerValue(headers, 'content-disposition'))) return;
 
-		// 刚处理过的不再处理，否则按「后退」会被立刻弹回来
-		if (wasJustRedirected(details.url)) return;
-		scheduleRedirect(details.tabId, details.url);
+		redirectToReader(details.tabId, details.url);
 	},
 	{ urls: ['<all_urls>'] },
 	['responseHeaders']

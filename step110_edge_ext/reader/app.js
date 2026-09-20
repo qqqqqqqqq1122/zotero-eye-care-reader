@@ -130,6 +130,62 @@ function buildReaderCallbacks(key) {
 	};
 }
 
+// ---------------------------------------------------------------- 下载当前 PDF
+// 自动打开会把"点下载链接"这种情况也带进阅读器，所以给阅读器配一个下载按钮兜底：
+// 文件随时能存下来，不用担心原来那一下下载丢了。
+
+let pdfBytes = null;
+let pdfFileName = 'document.pdf';
+
+function downloadCurrentPdf() {
+	if (!pdfBytes) return;
+	const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = pdfFileName;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	// 稍后再回收，给浏览器留出开始下载的时间
+	setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+const DOWNLOAD_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" '
+	+ 'stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'
+	+ '<path d="M8 2.5v7.5"/><path d="M4.6 7.2 8 10.6l3.4-3.4"/><path d="M2.8 13.2h10.4"/></svg>';
+
+/**
+ * 往工具栏里插一个下载按钮。
+ *
+ * 工具栏是 React 渲染的，往里塞原生节点属于"非受控"操作 ——
+ * React 一般不清理它不认识的节点，但状态变化时有可能被挤掉，
+ * 所以挂一个 MutationObserver 兜底，发现不在了就补回去。
+ */
+function injectDownloadButton() {
+	const anchor = document.getElementById('sidebarToggle');
+	const bar = anchor && anchor.parentElement;
+	if (!bar) return;
+	if (document.getElementById('zrDownload')) return;
+
+	const btn = document.createElement('button');
+	btn.id = 'zrDownload';
+	btn.className = 'toolbar-button';
+	btn.title = '下载此 PDF';
+	btn.tabIndex = -1;
+	btn.innerHTML = DOWNLOAD_ICON;
+	btn.addEventListener('click', downloadCurrentPdf);
+	bar.appendChild(btn);
+}
+
+function watchDownloadButton() {
+	injectDownloadButton();
+	new MutationObserver(injectDownloadButton).observe(document.body, {
+		childList: true,
+		subtree: true,
+	});
+}
+
 async function start(buf, key, title) {
 	if (typeof window.createReader !== 'function') {
 		fatal('reader.js 未能加载（window.createReader 不存在）。',
@@ -271,6 +327,9 @@ async function start(buf, key, title) {
 		reader.enableAddToNote(true);
 		enablePdfContextMenu(reader);
 		window._reader = reader;
+		// 放在 await 之前 —— initializedPromise 在某些时序下不 resolve，
+		// 放后面会导致按钮永远插不上。MutationObserver 会自己等到工具栏渲染出来。
+		watchDownloadButton();
 		await reader.initializedPromise;
 		// 视图可能在这之后才建好，再补一次
 		enablePdfContextMenu(reader);
@@ -309,5 +368,10 @@ async function start(buf, key, title) {
 		name = decodeURIComponent(new URL(src, location.href).pathname.split('/').pop() || src);
 	}
 	catch {}
+
+	// 留给工具栏里的下载按钮用
+	pdfBytes = buf;
+	pdfFileName = /\.pdf$/i.test(name) ? name : name + '.pdf';
+
 	await start(buf, await docKey(src), name.replace(/\.[^.]+$/, ''));
 })();
