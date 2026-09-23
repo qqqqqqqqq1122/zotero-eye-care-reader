@@ -26,12 +26,26 @@ git clone https://github.com/qqqqqqqqq1122/zotero-eye-care-reader.git
 
 **② 独立桌面版**（双击 PDF 直接用）
 
-从 [Releases](https://github.com/qqqqqqqqq1122/zotero-eye-care-reader/releases) 下载 `ZoteroReader.exe`（约 235 MB，因为内含整个 Chromium 运行时）。
+从 [Releases](https://github.com/qqqqqqqqq1122/zotero-eye-care-reader/releases/latest) 下载 **`ZoteroReader-portable.zip`**（约 155 MB），解压到任意目录，双击里面的 `ZoteroReader.exe` 即可。
+
+> ⚠️ **不要只把 `ZoteroReader.exe` 单独拷走。**
+>
+> 它是改名后的 Electron 运行时本体，只是整个应用三百多个文件中的一个。必须和同目录的
+> `icudtl.dat`、`resources.pak`、`resources\app\` 等文件待在一起才能启动 ——
+> 单独拷出来双击会**毫无反应、不弹窗、不报错**，命令行下才看得到
+> `Invalid file descriptor to ICU data received`。
+>
+> 要分享给别人，请发整个文件夹或那个 zip。完整包是 **316 个文件 / 379.2 MB**，
+> 压成 zip 后 **155 MB**。
+
+想设成双击 PDF 的默认程序：解压后运行包内的 `Register-PdfAssociation.cmd`，按提示操作。
+最后一下「设为默认」必须手动点 —— Windows 的 UCPD 服务保护着这个设置，脚本改不了。
 
 想自己从源码构建的话，按 `step010` → `step090` 的顺序跑脚本，详见下文。
 
 ## Revision History
 
+- 2026-09-23 — **修复桌面版分发**。v0.4.0 挂的那个单文件 `ZoteroReader.exe` 是**跑不起来**的：它只是改名后的 Electron 运行时本体，缺 `icudtl.dat` 等 315 个配套文件，双击静默退出、不弹窗不报错。已从 v0.4.0 移除该附件，并从 v0.4.5 起改发完整便携 zip（316 文件 / 379.2 MB，压后 155 MB）。顺带记一个连带的坑：Windows「打开方式 → 始终」会给这种单文件生成非规范的 `pdf_auto_file` ProgID，一旦它指向坏 exe，**双击任何 PDF 都毫无反应**，极易被误判成阅读器本身有问题。
 - 2026-09-20 21:11:45 — 扩展 0.4.4：**工具栏加下载按钮，自动打开恢复为立即跳转**。
   v0.4.3 为了区分"渲染"和"下载"在跳转前加了 250ms 延迟，拖慢了每一次打开，而且对没有 `Content-Disposition` 的下载也未必判断得准。现在改成**直接跳**，同时给阅读器工具栏插一个下载按钮（点一下把当前 PDF 存到本地）—— 万一真是下载被带进了阅读器，文件也能随时存下来，不会再丢。
   保留 `Content-Disposition: attachment` 直接放行这一道（零成本，覆盖最常见的情况）。
