@@ -84,6 +84,9 @@ function landing() {
 		+ '<p style="color:#999;margin:0 0 28px">没有指定要打开的 PDF。</p>'
 		+ '<p style="color:#999;margin:0 0 28px">用法：在 PDF 页面上点工具栏图标，'
 		+ '或在 PDF 链接上右键选「用护眼阅读器打开」。</p>'
+		+ '<p style="color:#999;margin:0 0 28px">打开 PDF 后在正文上右键，'
+		+ '可「复制绝对路径 / 复制链接」或「在文件资源管理器中打开」。'
+		+ '本地 PDF 的后者需要先运行桌面版目录里的 Register-PdfAssociation.cmd 注册协议。</p>'
 		+ '<p style="margin:0 0 12px">或者直接选一个本地文件：</p>';
 
 	const input = document.createElement('input');
@@ -136,6 +139,123 @@ function buildReaderCallbacks(key) {
 
 let pdfBytes = null;
 let pdfFileName = 'document.pdf';
+let sourceUrl = null;   // reader 页面 ?src= 的原始地址（file:// 或 http(s)://）
+let toastTimer = null;
+
+// ---------------------------------------------------------------- 右键：复制路径 / 在资源管理器中打开
+//
+// Chromium 扩展没有权限直接启动 explorer.exe，所以本地文件走桌面版注册的
+// zoteroreader:// 协议（Register-PdfAssociation.cmd 注册），由桌面版调用
+// shell.showItemInFolder。网页 PDF 则先下载，再用 downloads.show 在资源管理器里显示。
+
+function isLocalSource() {
+	return typeof sourceUrl === 'string' && sourceUrl.startsWith('file:');
+}
+
+/** file:///D:/a/b.pdf → D:\a\b.pdf；file://server/share/a.pdf → \\server\share\a.pdf */
+function windowsPathFromFileUrl(src) {
+	try {
+		const u = new URL(src);
+		if (u.protocol !== 'file:') return null;
+		let p = decodeURIComponent(u.pathname);
+		if (u.host) {
+			return '\\\\' + u.host + p.replace(/\//g, '\\');
+		}
+		if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1);
+		return p.replace(/\//g, '\\');
+	}
+	catch {
+		return null;
+	}
+}
+
+function toast(msg) {
+	let el = document.getElementById('zrToast');
+	if (!el) {
+		el = document.createElement('div');
+		el.id = 'zrToast';
+		el.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:99999;'
+			+ 'max-width:420px;padding:10px 14px;border-radius:10px;'
+			+ 'background:rgba(40,40,46,.97);color:#eaeaea;border:1px solid #3a3a42;'
+			+ 'font:13px/1.5 system-ui,"Microsoft YaHei",sans-serif;'
+			+ 'box-shadow:0 8px 24px rgba(0,0,0,.45);opacity:0;'
+			+ 'transition:opacity .15s;pointer-events:none;white-space:pre-wrap';
+		document.body.appendChild(el);
+	}
+	el.textContent = msg;
+	el.style.opacity = '1';
+	clearTimeout(toastTimer);
+	toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 5000);
+}
+
+async function copyText(text) {
+	try {
+		await navigator.clipboard.writeText(text);
+		return true;
+	}
+	catch {}
+	try {
+		const ta = document.createElement('textarea');
+		ta.value = text;
+		ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+		document.body.appendChild(ta);
+		ta.select();
+		const ok = document.execCommand('copy');
+		ta.remove();
+		return ok;
+	}
+	catch {
+		return false;
+	}
+}
+
+async function copySourcePath() {
+	const text = isLocalSource()
+		? (windowsPathFromFileUrl(sourceUrl) || sourceUrl)
+		: sourceUrl;
+	if (!text) {
+		toast('没有可复制的路径。');
+		return;
+	}
+	const ok = await copyText(text);
+	toast(ok ? '已复制：' + text : '复制失败，请手动选择路径。');
+}
+
+function openInExplorer() {
+	if (isLocalSource()) {
+		const p = windowsPathFromFileUrl(sourceUrl);
+		if (!p) {
+			toast('无法解析本地文件路径。');
+			return;
+		}
+		// 交给桌面版处理；桌面版没注册协议时浏览器不会有反应
+		const a = document.createElement('a');
+		a.href = 'zoteroreader://show?path=' + encodeURIComponent(p);
+		a.style.display = 'none';
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		toast('已请求在资源管理器中打开。\n若没反应，请先运行桌面版的 Register-PdfAssociation.cmd 注册协议。');
+		return;
+	}
+
+	// 网页 PDF：下载后用浏览器的 downloads.show 在资源管理器中显示
+	if (!(globalThis.chrome && chrome.downloads && chrome.downloads.download)) {
+		toast('当前环境不支持下载，无法定位文件。');
+		return;
+	}
+	chrome.downloads.download({ url: sourceUrl, saveAs: false }, (id) => {
+		if (chrome.runtime.lastError || id === undefined) {
+			toast('下载失败：' + (chrome.runtime.lastError && chrome.runtime.lastError.message || '未知错误'));
+			return;
+		}
+		toast('正在下载，随后会在资源管理器中显示…');
+		// 给下载一点时间把目标文件建出来，再让资源管理器定位它
+		setTimeout(() => {
+			try { chrome.downloads.show(id); } catch (e) { toast('无法在资源管理器中显示：' + e.message); }
+		}, 600);
+	});
+}
 
 function downloadCurrentPdf() {
 	if (!pdfBytes) return;
@@ -291,6 +411,14 @@ async function start(buf, key, title) {
 							label: popupEnabled ? '关闭选中弹窗' : '开启选中弹窗',
 							onCommand: () => setPopupEnabled(!popupEnabled),
 						}],
+						[{
+							label: isLocalSource() ? '复制绝对路径' : '复制链接',
+							onCommand: () => copySourcePath(),
+						},
+						{
+							label: '在文件资源管理器中打开',
+							onCommand: () => openInExplorer(),
+						}],
 					],
 				});
 			},
@@ -369,7 +497,8 @@ async function start(buf, key, title) {
 	}
 	catch {}
 
-	// 留给工具栏里的下载按钮用
+	// 留给工具栏里的下载按钮和右键菜单用
+	sourceUrl = src;
 	pdfBytes = buf;
 	pdfFileName = /\.pdf$/i.test(name) ? name : name + '.pdf';
 

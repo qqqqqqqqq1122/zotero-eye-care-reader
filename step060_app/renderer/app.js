@@ -48,6 +48,224 @@ async function getJSON(url) {
 	}
 }
 
+// ---------------------------------------------------------------- 启动页（打开历史）
+
+function formatOpenedAt(iso) {
+	const t = Date.parse(iso);
+	if (!Number.isFinite(t)) return '';
+	const diff = Math.max(0, Date.now() - t);
+	const MIN = 60 * 1000;
+	if (diff < MIN) return '刚刚';
+	if (diff < 60 * MIN) return Math.floor(diff / MIN) + ' 分钟前';
+	if (diff < 24 * 60 * MIN) return Math.floor(diff / (60 * MIN)) + ' 小时前';
+	if (diff < 7 * 24 * 60 * MIN) return Math.floor(diff / (24 * 60 * MIN)) + ' 天前';
+	const d = new Date(t);
+	const pad = (n) => String(n).padStart(2, '0');
+	return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+/**
+ * 没有指定 PDF 时显示的启动页：
+ * 「打开文件」按钮 + 最近打开列表（存于 userData/recent.json，由主进程维护）。
+ * 点历史条目会让主进程 loadDocument() 后整页 reload 进入阅读界面。
+ */
+async function renderStartScreen() {
+	document.title = 'PDF 阅读器';
+	document.body.classList.add('zr-start-screen');
+	document.body.innerHTML = '';
+
+	const wrap = document.createElement('div');
+	wrap.className = 'zr-start';
+	const card = document.createElement('div');
+	card.className = 'zr-start-card';
+	wrap.appendChild(card);
+
+	const title = document.createElement('h1');
+	title.textContent = 'PDF 阅读器';
+
+	const openBtn = document.createElement('button');
+	openBtn.type = 'button';
+	openBtn.className = 'zr-open-btn';
+	openBtn.textContent = '打开 PDF 文件…';
+
+	const status = document.createElement('p');
+	status.className = 'zr-status';
+
+	const head = document.createElement('div');
+	head.className = 'zr-recent-head';
+	const headLabel = document.createElement('span');
+	headLabel.textContent = '最近打开';
+	const clearBtn = document.createElement('button');
+	clearBtn.type = 'button';
+	clearBtn.className = 'zr-clear-btn';
+	clearBtn.textContent = '清空历史';
+	head.append(headLabel, clearBtn);
+
+	const list = document.createElement('ul');
+	list.className = 'zr-recent-list';
+
+	const hint = document.createElement('p');
+	hint.className = 'zr-start-hint';
+	hint.textContent = '提示：也可以双击 PDF 文件，或把 PDF 拖到本程序图标上打开。';
+
+	card.append(title, openBtn, status, head, list, hint);
+
+	let lastFiles = [];
+
+	const setStatus = (msg, isError = true) => {
+		status.textContent = msg || '';
+		status.classList.toggle('zr-status-ok', !!msg && !isError);
+		if (msg) setTimeout(() => { if (status.textContent === msg) status.textContent = ''; }, 6000);
+	};
+
+	// ---- 历史条目的右键菜单 ----
+	let ctxMenu = null;
+	const closeCtxMenu = () => {
+		if (ctxMenu) {
+			ctxMenu.remove();
+			ctxMenu = null;
+		}
+	};
+	document.addEventListener('mousedown', (e) => {
+		if (ctxMenu && !ctxMenu.contains(e.target)) closeCtxMenu();
+	});
+	document.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') closeCtxMenu();
+	});
+	window.addEventListener('blur', closeCtxMenu);
+	window.addEventListener('resize', closeCtxMenu);
+
+	const showItemMenu = (x, y, f) => {
+		closeCtxMenu();
+		const menu = document.createElement('div');
+		menu.className = 'zr-ctx-menu';
+
+		const addItem = (label, disabled, action) => {
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.textContent = label;
+			btn.disabled = !!disabled;
+			btn.addEventListener('click', () => {
+				closeCtxMenu();
+				action();
+			});
+			menu.appendChild(btn);
+		};
+
+		addItem('复制绝对路径', false, async () => {
+			const r = await postJSON('/__clipboard', { text: f.path });
+			setStatus(r && r.ok ? '已复制绝对路径' : '复制失败', !(r && r.ok));
+		});
+		addItem('在文件资源管理器中打开', !f.exists, async () => {
+			const r = await postJSON('/__showInFolder', { path: f.path });
+			if (!r || !r.ok) setStatus('文件不存在或已被移动。');
+		});
+
+		const sep = document.createElement('div');
+		sep.className = 'zr-ctx-sep';
+		menu.appendChild(sep);
+
+		addItem('从历史中移除', false, async () => {
+			const r = await postJSON('/__recent', { remove: f.path });
+			if (r && r.ok) paint(r.files);
+		});
+
+		document.body.appendChild(menu);
+		const rect = menu.getBoundingClientRect();
+		menu.style.left = Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)) + 'px';
+		menu.style.top = Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)) + 'px';
+		ctxMenu = menu;
+	};
+
+	const paint = (files) => {
+		lastFiles = Array.isArray(files) ? files : [];
+		clearBtn.disabled = !lastFiles.length;
+		list.innerHTML = '';
+
+		if (!lastFiles.length) {
+			const empty = document.createElement('li');
+			empty.className = 'zr-recent-empty';
+			empty.textContent = '还没有打开记录。';
+			list.appendChild(empty);
+			return;
+		}
+
+		for (const f of lastFiles) {
+			const item = document.createElement('li');
+			item.className = 'zr-recent-item' + (f.exists ? '' : ' zr-recent-missing');
+
+			const open = document.createElement('button');
+			open.type = 'button';
+			open.className = 'zr-recent-open';
+			open.disabled = !f.exists;
+			if (!f.exists) open.title = '文件不存在或已被移动';
+
+			const name = document.createElement('span');
+			name.className = 'zr-recent-name';
+			name.textContent = f.name;
+			const dir = document.createElement('span');
+			dir.className = 'zr-recent-dir';
+			dir.textContent = f.exists ? f.dir : '文件不存在 — ' + f.dir;
+			open.append(name, dir);
+
+			open.addEventListener('click', async () => {
+				open.disabled = true;
+				const r = await postJSON('/__open', { path: f.path });
+				if (r && r.ok) return;   // 主进程会 reload 页面
+				open.disabled = false;
+				setStatus('打开失败：文件不存在或已被移动。');
+			});
+
+			const time = document.createElement('span');
+			time.className = 'zr-recent-time';
+			time.textContent = formatOpenedAt(f.openedAt);
+
+			const remove = document.createElement('button');
+			remove.type = 'button';
+			remove.className = 'zr-recent-remove';
+			remove.title = '从历史中移除';
+			remove.textContent = '×';
+			remove.addEventListener('click', async (e) => {
+				e.stopPropagation();
+				const r = await postJSON('/__recent', { remove: f.path });
+				if (r && r.ok) paint(r.files);
+			});
+
+			item.addEventListener('contextmenu', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				showItemMenu(e.clientX, e.clientY, f);
+			});
+
+			item.append(open, time, remove);
+			list.appendChild(item);
+		}
+	};
+
+	openBtn.addEventListener('click', async () => {
+		setStatus('');
+		openBtn.disabled = true;
+		openBtn.textContent = '正在选择…';
+		const r = await postJSON('/__pickFile', {});
+		openBtn.disabled = false;
+		openBtn.textContent = '打开 PDF 文件…';
+		if (r && r.ok) return;   // 主进程会 reload 页面
+		if (!r || !r.canceled) setStatus('打开失败，请重试。');
+	});
+
+	clearBtn.addEventListener('click', async () => {
+		if (!lastFiles.length) return;
+		if (!window.confirm('确定清空全部打开历史吗？（不会删除 PDF 文件本身）')) return;
+		const r = await postJSON('/__recent', { clear: true });
+		if (r && r.ok) paint(r.files);
+	});
+
+	document.body.appendChild(wrap);
+
+	const data = await getJSON('/__recent');
+	paint(data && data.files);
+}
+
 (async function main() {
 	if (typeof window.createReader !== 'function') {
 		fatal('reader.js 未能加载（window.createReader 不存在）。\n'
@@ -57,7 +275,8 @@ async function getJSON(url) {
 
 	const doc = await getJSON('/__doc');
 	if (!doc || !doc.ok) {
-		fatal('没有指定要打开的 PDF。\n\n请用「双击 PDF 文件」或「把 PDF 拖到本程序图标上」的方式启动。');
+		// 启动时没有带 PDF 参数：显示「打开文件 + 最近打开」启动页
+		await renderStartScreen();
 		return;
 	}
 
@@ -191,6 +410,14 @@ async function getJSON(url) {
 						[{
 							label: popupEnabled ? '关闭选中弹窗' : '开启选中弹窗',
 							onCommand: () => setPopupEnabled(!popupEnabled),
+						}],
+						[{
+							label: '复制绝对路径',
+							onCommand: () => postJSON('/__clipboard', { text: doc.path }),
+						},
+						{
+							label: '在文件资源管理器中打开',
+							onCommand: () => postJSON('/__showInFolder', { path: doc.path }),
 						}],
 					],
 				});

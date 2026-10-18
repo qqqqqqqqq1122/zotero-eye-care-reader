@@ -1,3 +1,30 @@
+## v0.5.0 新增（桌面版 + 扩展）
+
+**打开历史、多窗口、右键路径操作。**
+
+桌面版：
+
+- 双击 exe 且没有 PDF 参数时显示启动页，「最近打开」最多 30 条；菜单栏新增 `文件 → 打开…`（Ctrl+O）、`文件 → 最近打开`、`文件 → 关闭窗口`。
+- 单进程多窗口：阅读时再双击 PDF，或从菜单打开，都会新开窗口，已经打开的文档不受影响。
+- 首页历史条目和 PDF 正文右键新增「复制绝对路径」「在文件资源管理器中打开」；历史条目还可单条移除或清空。
+- 新增 `zoteroreader://` 自定义协议，供 Edge 扩展调用 `shell.showItemInFolder`。
+
+扩展 0.5.0：
+
+- 阅读器右键菜单同步新增「复制绝对路径 / 复制链接」「在文件资源管理器中打开」。
+- 本地 PDF：通过 `zoteroreader://` 协议交给桌面版定位；需先运行一次桌面版目录里的 `Register-PdfAssociation.cmd`（不会改变 PDF 默认打开程序）。
+- 网页 PDF：先下载，再用 `chrome.downloads.show()` 在资源管理器中显示。
+- 新增 `downloads`、`clipboardWrite` 权限。
+
+安装：
+
+- 桌面版：下载 `ZoteroReader-portable-v0.5.0.zip`，解压后运行 `ZoteroReader/ZoteroReader.exe` —— 不要只拷 exe。
+- 扩展：下载 `zotero-eye-care-reader-edge-ext-v0.5.0.zip`，解压后在 `edge://extensions/` 里「加载解压缩的扩展」，并打开「允许访问文件 URL」。
+
+> 升级桌面版请先完全关闭旧版再启动新版。`%APPDATA%\zotero-reader-standalone` 里的批注和主题设置会保留；新版启动后打开的文档会自动进入历史。
+
+---
+
 ## v0.4.4 新增（仅扩展）
 
 **工具栏加了下载按钮。**

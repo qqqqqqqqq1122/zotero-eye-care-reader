@@ -62,6 +62,16 @@ New-Item -Path "$pk\shell\open\command" -Force | Out-Null
 Set-ItemProperty -Path "$pk\shell\open\command" -Name "(default)" -Value "`"$Exe`" `"%1`""
 Step "  shell\open\command = `"$Exe`" `"%1`""
 
+# 自定义协议：Edge 扩展的「在文件资源管理器中打开」通过它转给本程序，
+# 桌面版收到 zoteroreader://show?path=... 后调用 shell.showItemInFolder。
+$proto = "HKCU:\Software\Classes\zoteroreader"
+New-Item -Path $proto -Force | Out-Null
+Set-ItemProperty -Path $proto -Name "(default)" -Value "URL:ZoteroReader"
+Set-ItemProperty -Path $proto -Name "URL Protocol" -Value ""
+New-Item -Path "$proto\shell\open\command" -Force | Out-Null
+Set-ItemProperty -Path "$proto\shell\open\command" -Name "(default)" -Value "`"$Exe`" `"%1`""
+Step "  已注册 zoteroreader:// 协议（供 Edge 扩展调用）"
+
 Step "=== 3/5 注册 Applications 条目（让它出现在「打开方式」列表）==="
 $ak = "HKCU:\Software\Classes\Applications\$AppKey"
 New-Item -Path $ak -Force | Out-Null

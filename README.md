@@ -26,26 +26,20 @@ git clone https://github.com/qqqqqqqqq1122/zotero-eye-care-reader.git
 
 **② 独立桌面版**（双击 PDF 直接用）
 
-从 [Releases](https://github.com/qqqqqqqqq1122/zotero-eye-care-reader/releases/latest) 下载 **`ZoteroReader-portable.zip`**（约 155 MB），解压到任意目录，双击里面的 `ZoteroReader.exe` 即可。
+从 [Releases](https://github.com/qqqqqqqqq1122/zotero-eye-care-reader/releases) 下载 `ZoteroReader-portable-v0.5.0.zip`（约 155 MB）。解压后整个 `ZoteroReader` 文件夹就是完整便携版，双击其中的 `ZoteroReader.exe` 即可 —— **不要只拷 exe**，它需要同目录下的 Chromium 运行时。
 
-> ⚠️ **不要只把 `ZoteroReader.exe` 单独拷走。**
->
-> 它是改名后的 Electron 运行时本体，只是整个应用三百多个文件中的一个。必须和同目录的
-> `icudtl.dat`、`resources.pak`、`resources\app\` 等文件待在一起才能启动 ——
-> 单独拷出来双击会**毫无反应、不弹窗、不报错**，命令行下才看得到
-> `Invalid file descriptor to ICU data received`。
->
-> 要分享给别人，请发整个文件夹或那个 zip。完整包是 **316 个文件 / 379.2 MB**，
-> 压成 zip 后 **155 MB**。
-
-想设成双击 PDF 的默认程序：解压后运行包内的 `Register-PdfAssociation.cmd`，按提示操作。
-最后一下「设为默认」必须手动点 —— Windows 的 UCPD 服务保护着这个设置，脚本改不了。
+扩展也可以直接用 Release 里的 `zotero-eye-care-reader-edge-ext-v0.5.0.zip`：解压后在 `edge://extensions/` 里「加载解压缩的扩展」。本地 PDF 的「在文件资源管理器中打开」需要先运行一次便携版里的 `Register-PdfAssociation.cmd` 注册协议（不会改变 PDF 的默认打开程序）。
 
 想自己从源码构建的话，按 `step010` → `step090` 的顺序跑脚本，详见下文。
 
 ## Revision History
 
-- 2026-09-23 — **修复桌面版分发**。v0.4.0 挂的那个单文件 `ZoteroReader.exe` 是**跑不起来**的：它只是改名后的 Electron 运行时本体，缺 `icudtl.dat` 等 315 个配套文件，双击静默退出、不弹窗不报错。已从 v0.4.0 移除该附件，并从 v0.4.5 起改发完整便携 zip（316 文件 / 379.2 MB，压后 155 MB）。顺带记一个连带的坑：Windows「打开方式 → 始终」会给这种单文件生成非规范的 `pdf_auto_file` ProgID，一旦它指向坏 exe，**双击任何 PDF 都毫无反应**，极易被误判成阅读器本身有问题。
+- 2026-10-18 11:50:55 — 桌面版 v0.5.0 + 扩展 0.5.0：**打开历史 / 多窗口 / 右键路径操作**。
+  桌面版首页新增「最近打开」列表（最多 30 条，存 `%APPDATA%\zotero-reader-standalone\recent.json`）；双击 exe 且没有 PDF 参数时直接显示该首页。菜单栏新增 `文件 → 打开…`（Ctrl+O）、`文件 → 最近打开`、`文件 → 关闭窗口`。
+  单实例锁改为单进程多窗口：每个窗口一套独立的本地 HTTP 服务与文档上下文，双击新 PDF 或从菜单打开都会新开窗口，不再替换当前文档。
+  首页历史条目和 PDF 正文右键均新增「复制绝对路径」「在文件资源管理器中打开」；历史条目还可「从历史中移除」。
+  扩展 0.5.0 同步加入右键动作：`file://` 本地 PDF 通过新注册的 `zoteroreader://` 协议交给桌面版定位（需运行一次 `Register-PdfAssociation.cmd`），网页 PDF 先下载再用 `chrome.downloads.show()` 在资源管理器中显示；新增 `downloads` / `clipboardWrite` 权限。
+  产物：`ZoteroReader-portable-v0.5.0.zip`、`zotero-eye-care-reader-edge-ext-v0.5.0.zip`。
 - 2026-09-20 21:11:45 — 扩展 0.4.4：**工具栏加下载按钮，自动打开恢复为立即跳转**。
   v0.4.3 为了区分"渲染"和"下载"在跳转前加了 250ms 延迟，拖慢了每一次打开，而且对没有 `Content-Disposition` 的下载也未必判断得准。现在改成**直接跳**，同时给阅读器工具栏插一个下载按钮（点一下把当前 PDF 存到本地）—— 万一真是下载被带进了阅读器，文件也能随时存下来，不会再丢。
   保留 `Content-Disposition: attachment` 直接放行这一道（零成本，覆盖最常见的情况）。
@@ -225,8 +219,11 @@ cp -r build/dev/pdf build/web/pdf
 
 - 从 `process.argv` 取 PDF 路径（打包后切片位置不同，用 `app.isPackaged` 区分）
 - 起本地 HTTP 服务（随机端口，仅监听 127.0.0.1），把 reader 构建产物、`renderer\` 和动态端点一起伺服
-- 单实例锁：第二次双击复用已有窗口并重新加载
-- 动态端点：`/__doc`、`/__pdf`、`/__annotations`、`/__state`、`/__themes`、`/__screenshot`、`/__openExternal`、`/__pickFile`
+- 单实例锁 + 单进程多窗口：每个窗口一套独立的本地 HTTP 服务与文档上下文；第二次双击 PDF 新开窗口，不再覆盖当前文档
+- 打开历史：`userData\recent.json` 记录最近 30 个文档；无 PDF 参数启动时渲染「最近打开」首页
+- 右键文件操作：复制绝对路径、在文件资源管理器中打开（`/__clipboard`、`/__showInFolder`）
+- 自定义协议：`zoteroreader://show?path=...` 供 Edge 扩展请求定位文件
+- 动态端点：`/__doc`、`/__pdf`、`/__annotations`、`/__state`、`/__settings`、`/__recent`、`/__open`、`/__clipboard`、`/__showInFolder`、`/__screenshot`、`/__openExternal`、`/__pickFile`
 
 **为什么用 HTTP 而不是 `file://`**：reader 用 ES module、Worker、wasm，并用 iframe 加载 PDF 视图，`file://` 下会被同源策略挡住。
 
@@ -288,6 +285,7 @@ cp -r build/dev/pdf build/web/pdf
 - 删除野路子 ProgID `HKCU\Software\Classes\pdf_auto_file`（原值 `"D:\Zotero\zotero.exe" "%1"`）
 - 注册 `HKCU\Software\Classes\ZoteroReader.pdf`，`shell\open\command` = `"G:\setting_pdf_reader\step090_dist\ZoteroReader.exe" "%1"`
 - 注册 `HKCU\Software\Classes\Applications\ZoteroReader.exe`，`SupportedTypes` 含 `.pdf`，`FriendlyAppName` = `ZoteroReader 阅读器`
+- 注册 `zoteroreader://` 自定义协议，供 Edge 扩展的「在文件资源管理器中打开」调用 `shell.showItemInFolder`
 - 把 `HKCU\Software\Classes\.pdf` 的兜底 ProgID 由空壳 `winupdf` 改指到 `ZoteroReader.pdf`
 - 把 `ZoteroReader.pdf` 加入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\OpenWithProgids`
 
@@ -345,6 +343,7 @@ Requested registry access is not allowed.
 | 手动触发 | 工具栏图标（当前页是 PDF 时直接打开）、右键菜单（PDF 链接 / PDF 页面） |
 | reader 页面 | 扩展页 `reader/reader.html`，同源加载 `pdf/web/viewer.html`，不需要 `web_accessible_resources` |
 | PDF 来源 | `fetch(src)`，靠 `<all_urls>` host 权限跨域取字节 |
+| 右键文件操作 | `file://` 本地 PDF 走 `zoteroreader://` 协议交给桌面版定位；网页 PDF 先 `chrome.downloads.download` 再 `chrome.downloads.show` |
 | 持久化 | `chrome.storage.local`，键为 `doc:<sha1(PDF URL)>` |
 | **CSP** | `script-src 'self' 'wasm-unsafe-eval'` —— **必须加 `'wasm-unsafe-eval'`**，pdf.js 的 jbig2 / openjpeg / qcms 都要用 WebAssembly |
 
@@ -362,6 +361,8 @@ Requested registry access is not allowed.
 第 5 步不是可选项 —— 不开的话**本地 PDF（双击打开、下载后点开）一律不生效**：扩展连 `file://` 标签页的 URL 都读不到，`webRequest` 和 `tabs.onUpdated` 两条路全都沉默。网页 PDF 不受影响。
 
 扩展会自检：没开这个权限时，工具栏图标上会挂一个**红色 `!` 徽标**，鼠标悬停有说明。装上后看到 `!` 就是缺这一步。
+
+6. 想用本地 PDF 的「在文件资源管理器中打开」：运行一次桌面版目录里的 `Register-PdfAssociation.cmd` 注册 `zoteroreader://` 协议（不会改变 PDF 的默认打开程序）。纯扩展没有权限启动 `explorer.exe`，网页 PDF 则不需要这一步：扩展会先下载文件，再用浏览器的 `chrome.downloads.show()` 在资源管理器中定位。
 
 ### 实测验证（Edge 153.0.4234.32，全新 profile）
 
@@ -586,6 +587,7 @@ onOpenContextMenu: (params) => {
 - **标签弹窗未实现**。`onOpenTagsPopup` 目前是空实现，点批注的加标签入口没有反应。
 - **批注不能与 Zotero 同步**。存在本地 JSON，不回写 `zotero.sqlite`。
 - **不能双击打开 EPUB**。主进程白名单里有 `.epub`，但 `app.js` 固定 `type: 'pdf'`，需要额外接 EPUB 分支。
+- **扩展的本地 PDF「在文件资源管理器中打开」依赖桌面版**。Chromium 扩展没有权限直接启动 `explorer.exe`，必须通过桌面版注册的 `zoteroreader://` 协议转交；网页 PDF 会先下载一份到默认下载目录，再在资源管理器中定位。
 - **分发义务**：reader 与 Zotero 均为 **AGPL-3.0**。自用无妨，若要分发给他人，衍生作品源码也需按 AGPL 开放。
 
 ## 参考
