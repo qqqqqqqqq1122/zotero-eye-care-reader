@@ -1,3 +1,20 @@
+## v0.5.1 修复（仅扩展）
+
+**反爬验证页不再让阅读器白屏；验证页自动交还当前标签页。**
+
+- econstor.eu 这类 Anubis 站点：阅读器识别 HTML 验证页，按 Anubis 公开的算法自动完成 SHA-256 工作量证明，带 credentials 请求 `pass-challenge` 后直接取回 PDF。
+- 其它需要人工验证 / 登录的站点：不再新开标签页、也不再要求点按钮，直接把**当前标签页**交还原链接；后台记录 5 分钟放行，避免又被自动打开逻辑弹回阅读器。
+- ScienceDirect 的 `pdfft?...&pid=...main.pdf` 不再被误判为 PDF 而跳进阅读器 —— `tabs.onUpdated` 的 `.pdf` 后缀兜底改为只看 pathname 或查询串里的 `file=*.pdf`。
+- 普通 PDF 和本地 PDF 的自动打开行为不变。
+
+安装：下载 `zotero-eye-care-reader-edge-ext-v0.5.1.zip`，解压后在 `edge://extensions/` 里「加载解压缩的扩展」，并打开「允许访问文件 URL」。
+
+> 桌面版没有变化，仍是 v0.5.0；需要桌面版请到 [v0.5.0](https://github.com/qqqqqqqqq1122/zotero-eye-care-reader/releases/tag/v0.5.0)。
+>
+> 已装扩展的：在 `edge://extensions/` 点一下「重新加载」，版本号变成 0.5.1 即可。
+
+---
+
 ## v0.5.0 新增（桌面版 + 扩展）
 
 **打开历史、多窗口、右键路径操作。**
