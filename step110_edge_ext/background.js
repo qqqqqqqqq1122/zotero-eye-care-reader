@@ -25,11 +25,26 @@ const recentRedirects = new Map();
 // 30 秒：够用户按一次「后退」并停在原生查看器上
 const REDIRECT_MEMORY_MS = 30000;
 
+// 阅读器明确要求「这个链接先别自动跳转」的记录。
+// 用在自动验证失败时：让用户可以回到普通标签页走站点自己的验证流程。
+const bypassedUrls = new Map();
+const BYPASS_MEMORY_MS = 5 * 60 * 1000;
+
+/** 去掉 #fragment：同一个文件带不带锚点都算同一个 URL */
+function withoutHash(url) {
+	const i = url.indexOf('#');
+	return i >= 0 ? url.slice(0, i) : url;
+}
+
 function wasJustRedirected(url) {
 	const now = Date.now();
 	for (const [k, t] of recentRedirects) {
 		if (now - t > REDIRECT_MEMORY_MS) recentRedirects.delete(k);
 	}
+	for (const [k, t] of bypassedUrls) {
+		if (now - t > BYPASS_MEMORY_MS) bypassedUrls.delete(k);
+	}
+	if (bypassedUrls.has(withoutHash(url))) return true;
 	return recentRedirects.has(url);
 }
 
@@ -114,6 +129,14 @@ chrome.runtime.onInstalled.addListener(() => {
 	buildMenus();
 });
 
+// 阅读器自动过不了人机验证时，会请后台先放行这个 URL，
+// 好让用户回到普通标签页走站点自己的验证流程。
+chrome.runtime.onMessage.addListener((msg) => {
+	if (msg && msg.type === 'eye-care-allow-url' && typeof msg.url === 'string') {
+		bypassedUrls.set(withoutHash(msg.url), Date.now());
+	}
+});
+
 chrome.contextMenus.onClicked.addListener(async (info) => {
 	if (info.menuItemId === MENU_TOGGLE) {
 		autoOpen = !!info.checked;
@@ -159,12 +182,17 @@ function redirectToReader(tabId, url) {
 // webRequest 对 file:// 完全不触发，而本地 PDF（双击打开、下载后点开）正是
 // 最常见的用法，所以必须有一条不依赖响应头的路径。
 // 代价是抓不到无后缀的链接 —— 那条路由下面的 webRequest 负责，两者互补。
+//
+// 只认 pathname 以 .pdf 结尾，或查询串里有明确的 file=xxx.pdf：
+// 不能拿整条 URL 去匹配后缀。ScienceDirect 的 pdfft?...&pid=...main.pdf
+// 只是把 .pdf 放在查询参数的值里，实际返回的是人机验证页；按整条 URL
+// 匹配会把它误带进阅读器，然后只能再跳回原页面。
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 	if (!autoOpen) return;
 	const url = changeInfo.url || (changeInfo.status === 'loading' ? tab && tab.url : null);
 	if (!url || typeof url !== 'string') return;
 	if (url.startsWith('chrome-extension://')) return;
-	if (!/\.pdf($|[?#])/i.test(url)) return;
+	if (!isPdfUrl(url)) return;
 	redirectToReader(tabId, url);
 });
 

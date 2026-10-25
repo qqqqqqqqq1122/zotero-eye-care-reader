@@ -65,7 +65,7 @@ async function docKey(src) {
 
 // ---------------------------------------------------------------- 界面
 
-function fatal(msg, detail) {
+function fatal(msg, detail, buttons) {
 	document.body.innerHTML = '';
 	const box = document.createElement('div');
 	box.style.cssText = 'font:14px/1.8 system-ui,"Microsoft YaHei",sans-serif;color:#ddd;'
@@ -73,6 +73,22 @@ function fatal(msg, detail) {
 		+ 'white-space:pre-wrap;max-width:820px';
 	box.textContent = msg + (detail ? '\n\n' + detail : '');
 	document.body.appendChild(box);
+
+	// 出错时给几个可点的出口，别让用户对着一段死文字发呆
+	if (Array.isArray(buttons) && buttons.length) {
+		const row = document.createElement('div');
+		row.style.cssText = 'margin-top:24px;display:flex;gap:12px;flex-wrap:wrap';
+		for (const { label, onClick } of buttons) {
+			const b = document.createElement('button');
+			b.textContent = label;
+			b.style.cssText = 'font:14px system-ui,"Microsoft YaHei",sans-serif;'
+				+ 'padding:8px 16px;border-radius:8px;border:1px solid #555;'
+				+ 'background:#2a2a2e;color:#e5e5e5;cursor:pointer;white-space:normal';
+			b.addEventListener('click', onClick);
+			row.appendChild(b);
+		}
+		box.appendChild(row);
+	}
 }
 
 function landing() {
@@ -469,6 +485,184 @@ async function start(buf, key, title) {
 	}
 }
 
+// ---------------------------------------------------------------- 取 PDF 字节
+//
+// 有的站点会在 PDF 前面挡一层人机验证。econstor.eu 用的是 Anubis
+// （techaro.lol）：对浏览器 UA 返回一张 HTML 验证页，页面里的脚本要做一次
+// SHA-256 工作量证明，再请求 pass-challenge 换 cookie，最后 302 到真正的 PDF。
+//
+// 扩展里的 fetch 不会执行对方页面里的脚本，直接拿只能拿到那张验证页 ——
+// 这就是「跳进阅读器后什么都不显示」的根因。下面按 Anubis 公开的算法
+// （static/js/main.mjs 与 worker/sha256-*.mjs）自己解一遍。
+//
+// credentials: 'include' 不能省：验证用的 cookie 是
+// SameSite=None; Secure; Partitioned 的跨站分区 cookie，
+// fetch 默认的 same-origin 模式既不会接收、也不会发送它。
+
+const ANUBIS_PASS_PATH = '/.within.website/x/cmd/anubis/api/pass-challenge';
+const ANUBIS_MAX_NONCE = 20000000;
+
+function isPdfBytes(buf) {
+	// PDF 规范允许 %PDF- 前面有少量垃圾字节，所以扫前 1 KiB
+	const head = buf.subarray(0, Math.min(buf.length, 1024));
+	for (let i = 0; i + 5 <= head.length; i++) {
+		if (head[i] === 0x25 && head[i + 1] === 0x50 && head[i + 2] === 0x44
+			&& head[i + 3] === 0x46 && head[i + 4] === 0x2D) return true;
+	}
+	return false;
+}
+
+/** 从 Anubis 验证页里取出挑战参数；不是验证页就返回 null */
+function parseAnubisChallenge(html) {
+	let doc;
+	try {
+		doc = new DOMParser().parseFromString(html, 'text/html');
+	}
+	catch {
+		return null;
+	}
+	const el = doc.getElementById('anubis_challenge');
+	if (!el) return null;
+
+	let data;
+	try {
+		data = JSON.parse(el.textContent || '{}');
+	}
+	catch {
+		return null;
+	}
+	if (!data.challenge || !data.challenge.randomData || !data.rules) return null;
+
+	// base prefix 一般为空字符串；子路径部署时才非空
+	let prefix = '';
+	const prefixEl = doc.getElementById('anubis_base_prefix');
+	if (prefixEl) {
+		try { prefix = JSON.parse(prefixEl.textContent || '""') || ''; } catch {}
+	}
+	return { challenge: data.challenge, rules: data.rules, prefix: String(prefix) };
+}
+
+async function sha256Hex(text) {
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Anubis 的 fast 算法：从 nonce = 0 递增，
+ * 找 sha256(randomData + nonce) 的十六进制前 difficulty 位全为 0。
+ * 难度 2 时平均只要 256 次，几毫秒。
+ */
+async function solveAnubisPoW(randomData, difficulty, onProgress) {
+	for (let nonce = 0; nonce <= ANUBIS_MAX_NONCE; nonce++) {
+		const hash = await sha256Hex(randomData + nonce);
+		if (hash.startsWith('0'.repeat(difficulty))) return { nonce, hash };
+		if ((nonce & 1023) === 1023 && onProgress) onProgress(nonce);
+	}
+	return null;
+}
+
+/** 解挑战并换取 PDF；失败返回 null */
+async function passAnubis({ challenge, rules, prefix }, redirectUrl, onProgress) {
+	const difficulty = Number(rules.difficulty);
+	if (!Number.isInteger(difficulty) || difficulty < 0 || difficulty > 6) return null;
+
+	const started = Date.now();
+	const solved = await solveAnubisPoW(
+		String(challenge.randomData), difficulty,
+		(step) => onProgress && onProgress(step),
+	);
+	if (!solved) return null;
+
+	const passUrl = new URL((prefix || '') + ANUBIS_PASS_PATH, redirectUrl);
+	passUrl.searchParams.set('id', String(challenge.id));
+	passUrl.searchParams.set('response', solved.hash);
+	passUrl.searchParams.set('nonce', String(solved.nonce));
+	passUrl.searchParams.set('redir', redirectUrl);
+	passUrl.searchParams.set('elapsedTime', String(Math.max(1, Date.now() - started)));
+
+	// 302 会带着刚换到的 cookie 跳到 redirectUrl，fetch 自动跟随，
+	// 正常情况下拿到的就是 PDF 本身。
+	const res = await fetch(passUrl.href, { credentials: 'include', redirect: 'follow' });
+	if (!res.ok) return null;
+	return new Uint8Array(await res.arrayBuffer());
+}
+
+function showStatus(msg) {
+	let el = document.getElementById('zrStatus');
+	if (!el) {
+		el = document.createElement('div');
+		el.id = 'zrStatus';
+		el.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;'
+			+ 'justify-content:center;font:15px/1.8 system-ui,"Microsoft YaHei",sans-serif;'
+			+ 'color:#bbb;background:#1c1c1e;z-index:9999;white-space:pre-wrap;'
+			+ 'text-align:center;padding:24px;box-sizing:border-box';
+		document.body.appendChild(el);
+	}
+	el.textContent = msg;
+}
+
+function hideStatus() {
+	const el = document.getElementById('zrStatus');
+	if (el) el.remove();
+}
+
+/** 读取 URL 并返回 { buf, url }；能自动过 Anubis 人机验证 */
+async function fetchPdf(url) {
+	const res = await fetch(url, { credentials: 'include' });
+	const finalUrl = res.url || url;
+
+	// 先读 body 再判断状态码：有的 Anubis 部署会用 403 返回验证页
+	let buf = new Uint8Array(await res.arrayBuffer());
+	if (isPdfBytes(buf)) return { buf, url: finalUrl };
+
+	// 不是 PDF —— 先看看是不是 Anubis 的人机验证页
+	const html = new TextDecoder('utf-8').decode(buf);
+	const anubis = parseAnubisChallenge(html);
+	if (anubis) {
+		showStatus('该网站启用了人机验证（Anubis），正在自动完成验证…');
+		try {
+			const passed = await passAnubis(anubis, finalUrl, (step) => {
+				showStatus('该网站启用了人机验证（Anubis），正在自动完成验证…\n'
+					+ '已计算 ' + step.toLocaleString() + ' 次');
+			});
+			if (passed && isPdfBytes(passed)) return { buf: passed, url: finalUrl };
+		}
+		finally {
+			hideStatus();
+		}
+		const err = new Error('这个网站的人机验证没有通过。'
+			+ '\n\n可以点「在普通标签页打开」，让浏览器自己完成验证；'
+			+ '验证成功看到 PDF 后，回到这个标签页点「已通过验证，重试」。');
+		err.openNatively = finalUrl;
+		err.retryable = true;
+		throw err;
+	}
+
+	const type = res.headers.get('content-type') || '未知类型';
+	const err = new Error((res.ok ? '服务器返回的不是 PDF' : '服务器返回 HTTP ' + res.status)
+		+ '（Content-Type: ' + type + '）。'
+		+ '\n\n这个链接需要浏览器自己处理站点的人机验证、登录或下载确认，'
+		+ '扩展里的请求过不去。');
+	err.openNatively = finalUrl;
+	err.retryable = true;
+	throw err;
+}
+
+/**
+ * 把当前标签页交还给浏览器，让站点自己的人机验证 / 登录流程接管。
+ *
+ * 用同一个标签页，不新开：少一步、也不把用户的注意力引到别处。
+ * 导航前先请后台放行这个 URL，否则一跳到 .pdf 又会被自动打开逻辑弹回阅读器。
+ */
+async function handBackToBrowser(url, delayMs = 0) {
+	try {
+		await chrome.runtime.sendMessage({ type: 'eye-care-allow-url', url });
+	}
+	catch {}
+	if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+	location.href = url;
+}
+
 (async function main() {
 	const src = new URLSearchParams(location.search).get('src');
 	if (!src) {
@@ -477,15 +671,31 @@ async function start(buf, key, title) {
 	}
 
 	let buf;
+	let finalUrl = src;
 	try {
-		const res = await fetch(src);
-		if (!res.ok) throw new Error('HTTP ' + res.status);
-		buf = new Uint8Array(await res.arrayBuffer());
+		({ buf, url: finalUrl } = await fetchPdf(src));
 	}
 	catch (e) {
-		fatal('读取 PDF 失败。\n\n' + src, String(e)
-			+ '\n\n如果是 file:// 本地文件，需要在 edge://extensions 里'
-			+ '为本扩展打开「允许访问文件 URL」。');
+		const target = (e && e.openNatively) || src;
+
+		// 站点挡了人机验证 / 登录 / 下载确认页：扩展里的 fetch 过不去。
+		// 直接把当前标签页交还给浏览器，不要求用户再点一次按钮。
+		if (e && e.retryable) {
+			showStatus('这个链接需要浏览器自己处理（站点要求人机验证、登录或下载确认）。\n\n'
+				+ '正在转到原页面，请按站点提示操作…');
+			await handBackToBrowser(target, 1200);
+			return;
+		}
+
+		const isFile = /^file:/i.test(src);
+		fatal('读取 PDF 失败。\n\n' + src,
+			(e && (e.message || String(e)))
+				+ (isFile ? '\n\n如果是 file:// 本地文件，需要在 edge://extensions 里'
+					+ '为本扩展打开「允许访问文件 URL」。' : ''),
+			[{
+				label: '在普通标签页打开',
+				onClick: () => handBackToBrowser(target),
+			}]);
 		return;
 	}
 
@@ -497,8 +707,9 @@ async function start(buf, key, title) {
 	}
 	catch {}
 
-	// 留给工具栏里的下载按钮和右键菜单用
-	sourceUrl = src;
+	// 留给工具栏里的下载按钮和右键菜单用。
+	// 用 finalUrl 而不是 src：Anubis 这类站点验证前后地址可能不同。
+	sourceUrl = finalUrl;
 	pdfBytes = buf;
 	pdfFileName = /\.pdf$/i.test(name) ? name : name + '.pdf';
 

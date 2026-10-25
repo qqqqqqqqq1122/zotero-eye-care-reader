@@ -34,6 +34,13 @@ git clone https://github.com/qqqqqqqqq1122/zotero-eye-care-reader.git
 
 ## Revision History
 
+- 2026-10-25 16:37:48 — 扩展：**修复反爬验证页导致的阅读器空白；验证页自动交还当前标签页**。
+  有的站点会在 PDF 前面挡一层人机验证。econstor.eu 用的是 Anubis：对浏览器 UA 返回 HTML 验证页（`Making sure you're not a bot!`），页面里的脚本要做一次 SHA-256 工作量证明，再换 `SameSite=None; Secure; Partitioned` cookie，最后 302 到 PDF。扩展的 `fetch` 不执行对方脚本，只能拿到验证页，pdf.js 解析失败后标签页就停在空白。
+  现在 `step110_edge_ext/reader/app.js` 会识别 Anubis 验证页，按它公开的算法自动解出 nonce，请求 `pass-challenge`（带 credentials，跟随 302）直接取回 PDF；所有取文件的请求都带上了 credentials，并用 `%PDF-` 魔数判断响应是不是真的 PDF，不再把 HTML 交给 pdf.js。
+  自动验证失败或站点返回其它验证/登录页时，`step110_edge_ext/reader/app.js` 不再要求用户点按钮，而是显示提示后**把当前标签页交还给原链接**；`step110_edge_ext/background.js` 记录 5 分钟放行，避免又被自动打开逻辑弹回阅读器。
+  另外，`step110_edge_ext/background.js` 的 URL 后缀兜底改为只看 pathname（或查询串里的 `file=*.pdf`），不再拿整条 URL 匹配。ScienceDirect 的 `pdfft?...&pid=...main.pdf` 只是把 `.pdf` 放在查询参数的值里，按整条 URL 匹配会把它误带进阅读器，然后只能再跳回原页面。
+  实测（Edge 154.0.4258.62 / Chrome 152.0.7977.83）：`https://www.econstor.eu/bitstream/10419/110756/1/dp9020.pdf#2#2#2` 自动跳入阅读器后加载 2,802,817 字节、13 页；`https://www.sciencedirect.com/science/article/pii/S0165176506000772/pdfft?md5=9337644b13efbc77e8073024a54296c5&pid=1-s2.0-S0165176506000772-main.pdf` 不再被误跳转，人机验证页留在当前标签页；`https://example.com/definitely-not-a-pdf.pdf` 这类返回 HTML 的 `.pdf` 路径会先在阅读器里提示，然后自动回到原 URL；普通 PDF `https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf` 不受影响。
+  桌面版未改动；尚未创建新 Release。
 - 2026-10-18 11:50:55 — 桌面版 v0.5.0 + 扩展 0.5.0：**打开历史 / 多窗口 / 右键路径操作**。
   桌面版首页新增「最近打开」列表（最多 30 条，存 `%APPDATA%\zotero-reader-standalone\recent.json`）；双击 exe 且没有 PDF 参数时直接显示该首页。菜单栏新增 `文件 → 打开…`（Ctrl+O）、`文件 → 最近打开`、`文件 → 关闭窗口`。
   单实例锁改为单进程多窗口：每个窗口一套独立的本地 HTTP 服务与文档上下文，双击新 PDF 或从菜单打开都会新开窗口，不再替换当前文档。
